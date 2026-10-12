@@ -121,9 +121,9 @@ h1 .q{color:var(--ink-faint)}
 .bar i{display:block;height:100%;background:var(--green);border-radius:2px;transition:width .4s ease}
 .nowrow .bar{height:4px}
 .panel{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:12px}
-.big{display:grid;grid-template-columns:repeat(2,1fr);gap:20px 14px}
+.big{display:grid;grid-template-columns:repeat(3,1fr);gap:20px 14px}
 .big div b{display:block;font-weight:600;font-size:1.9rem;line-height:1;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
-.big div span{color:var(--ink-soft);font-size:.82rem}
+.big div span{display:block;margin-top:6px;color:var(--ink-soft);font-size:.82rem;line-height:1.35}
 .goal-line{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
 .goal-line p{margin:0}
 #goalText{color:var(--ink-soft);font-size:.9rem}
@@ -304,11 +304,6 @@ header.top{position:relative}
       <div class="big" id="bigStats"></div>
     </section>
     <section class="panel">
-      <h2>Pages read, last 30 days</h2>
-      <div class="chart" id="dayChart"></div>
-      <p class="hint" id="dayHint"></p>
-    </section>
-    <section class="panel">
       <h2 id="monthTitle">Books finished by month</h2>
       <div class="chart" id="monthChart"></div>
     </section>
@@ -335,7 +330,7 @@ header.top{position:relative}
     </button>
     <button class="tab" data-tab="habits">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
-      Habits
+      Insight
     </button>
   </div>
 </nav>
@@ -908,29 +903,17 @@ function renderHabits(){
   const finishedYear = owned.flatMap(completions).filter(x => x.at.startsWith(String(YEAR)));
   const rereadsYear = finishedYear.filter(x => x.r > 0).length;
   const dnfYear = owned.filter(b => b.status === "dnf" && (b.stoppedAt || "").startsWith(String(YEAR))).length;
-  const lentNow = owned.filter(b => b.lent).length;
   // Logged pages this year, plus the unlogged rest of books finished this year (never assigned to a day).
   const loggedYear = Object.entries(perDay).filter(([d]) => d.startsWith(String(YEAR))).reduce((s,[,p]) => s + p, 0);
   const restYear = finishedYear.reduce((s, x) => s + (x.b.pages ? Math.max(0, x.b.pages - pagesRead(x.b, x.r) - x.untracked) : 0), 0);
   const pagesYear = loggedYear + restYear;
 
-  // streak: consecutive days with pages logged, ending today or yesterday
-  let streak = 0; const d = new Date();
-  if (!perDay[todayKey(d)]) d.setDate(d.getDate() - 1);
-  while (perDay[todayKey(d)] > 0){ streak++; d.setDate(d.getDate() - 1); }
-
-  const days = []; const now = new Date();
-  for (let i = 29; i >= 0; i--){ const x = new Date(now); x.setDate(now.getDate() - i); days.push({ k: todayKey(x), d: x, p: perDay[todayKey(x)] || 0 }); }
-  const last30 = days.reduce((s,x) => s + x.p, 0);
-  const activeDays = days.filter(x => x.p > 0).length;
+  const now = new Date();
 
   $("#bigStats").innerHTML = `
-    <div><b>${finishedYear.length}</b><span>books finished in ${YEAR}</span></div>
-    <div><b>${pagesYear.toLocaleString()}</b><span>pages read in ${YEAR}</span></div>
-    <div><b>${streak}</b><span>${streak === 1 ? "day" : "days"} in a row</span></div>
-    <div><b>${Math.round(last30 / 30)}</b><span>pages a day, last 30 days</span></div>
-    <div><b>${dnfYear}</b><span>didn't finish in ${YEAR}</span></div>
-    <div><b>${lentNow}</b><span>${lentNow === 1 ? "book" : "books"} lent out now</span></div>`;
+    <div><b>${finishedYear.length}</b><span>books finished this year</span></div>
+    <div><b>${pagesYear.toLocaleString()}</b><span>pages read this year</span></div>
+    <div><b>${dnfYear}</b><span>didn't finish this year</span></div>`;
 
   const goal = Math.max(1, profile.goal || 24);
   $("#goalTitle").textContent = `${goal} books in ${YEAR}`;
@@ -941,22 +924,6 @@ function renderHabits(){
     : `${finishedYear.length} of ${goal} finished. ${left} to go, about ${(left / weeksLeft).toFixed(1)} a week.`;
   if (rereadsYear) $("#goalText").textContent += ` Includes ${rereadsYear} re-read${rereadsYear > 1 ? "s" : ""}.`;
   $("#goalBar").style.width = Math.min(100, finishedYear.length / goal * 100) + "%";
-
-  // 30-day bar chart
-  const max = Math.max(10, ...days.map(x => x.p));
-  const W = 600, H = 170, pad = 22, bw = (W - pad) / 30;
-  let bars = "";
-  days.forEach((x, i) => {
-    const h = x.p ? Math.max(3, (x.p / max) * (H - 40)) : 2;
-    const fill = x.p ? "var(--green)" : "var(--line)";
-    bars += `<rect x="${pad + i*bw + 2}" y="${H - 20 - h}" width="${bw - 4}" height="${h}" rx="2" fill="${fill}"><title>${x.d.toLocaleDateString(undefined,{month:"short",day:"numeric"})}: ${x.p} pages</title></rect>`;
-    if (i % 7 === 0 || i === 29) bars += `<text x="${pad + i*bw + bw/2}" y="${H - 4}" font-size="11" text-anchor="middle" fill="var(--ink-soft)" font-family="Geist, system-ui, sans-serif">${x.d.toLocaleDateString(undefined,{month:"short",day:"numeric"})}</text>`;
-  });
-  bars += `<text x="0" y="14" font-size="11" fill="var(--ink-soft)" font-family="Geist, system-ui, sans-serif">${max}</text><line x1="${pad}" x2="${W}" y1="${H-20}" y2="${H-20}" stroke="var(--line)"/>`;
-  $("#dayChart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Pages read each day for the last 30 days">${bars}</svg>`;
-  $("#dayHint").textContent = activeDays
-    ? `You read on ${activeDays} of the last 30 days, ${last30.toLocaleString()} pages in all.`
-    : "Update the page you're on in any book you're reading, and your days show up here.";
 
   // month chart
   $("#monthTitle").textContent = `Books finished in ${YEAR}`;
