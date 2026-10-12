@@ -187,6 +187,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--ink-soft
 .detail-top{display:flex;gap:16px;align-items:flex-start;margin-bottom:6px}
 .detail-top .cov{width:76px;height:110px;flex:none;border-radius:3px;background-size:cover;background-position:center;box-shadow:0 8px 18px -10px var(--shadow);display:flex;align-items:center;justify-content:center;padding:8px;font-size:.7rem;font-weight:500;text-align:center;line-height:1.15;overflow:hidden}
 .detail-top .linkbtn{margin-top:-8px}
+.detail-top .cov{cursor:pointer}
 .hint{font-size:.82rem;color:var(--ink-soft);margin:6px 0 0}
 .status-msg{background:var(--wall);border-radius:12px;padding:14px;margin:10px 0;display:flex;gap:12px;align-items:center;font-size:.9rem}
 .spin{width:18px;height:18px;border:2px solid var(--line-2);border-top-color:var(--ink);border-radius:50%;animation:sp .8s linear infinite;flex:none}
@@ -456,6 +457,9 @@ header.top{position:relative}
     </div>
     <label>Spine color</label>
     <div class="swatches" id="f-colors"></div>
+    <label>Cover</label>
+    <div class="spinepick"><img id="f-coverImg" alt="Cover" hidden><div class="btns"><button type="button" class="btn ghost sm" id="f-coverBtn">Add a cover photo</button><button type="button" class="btn ghost sm" id="f-coverRemove" hidden>Remove</button></div></div>
+    <p class="hint" id="f-coverNote"></p>
     <label>Spine photo</label>
     <div class="spinepick"><img id="f-spineImg" alt="Spine photo" hidden><div class="btns"><button type="button" class="btn ghost sm" id="f-spineBtn">Photograph the spine</button><button type="button" class="btn ghost sm" id="f-spineFlip" hidden>Flip</button></div></div>
     <p class="hint" id="f-spineNote">Optional. Your shelf shows the real spine instead of a plain color.</p>
@@ -499,6 +503,9 @@ header.top{position:relative}
     <p class="desc clamp" id="dDesc"></p>
     <button class="linkbtn" id="dDescMore" type="button">Show more</button>
   </div>
+  <label>Cover</label>
+  <div class="spinepick"><div class="btns"><button type="button" class="btn ghost sm" id="dCoverBtn">Add a cover photo</button><button type="button" class="btn ghost sm" id="dCoverRemove" hidden>Remove</button></div></div>
+  <p class="hint" id="dCoverNote"></p>
   <label>Spine photo</label>
   <div class="spinepick"><img id="dSpineImg" alt="Spine photo" hidden><div class="btns"><button type="button" class="btn ghost sm" id="dSpineBtn">Photograph the spine</button><button type="button" class="btn ghost sm" id="dSpineFlip" hidden>Flip</button><button type="button" class="btn ghost sm" id="dSpineRemove" hidden>Remove</button></div></div>
   <p class="hint" id="dSpineNote">Fill the frame with the spine. The book can stand up or lie flat.</p>
@@ -629,7 +636,7 @@ header.top{position:relative}
 <section class="sheet" id="cropSheet" role="dialog" aria-modal="true" aria-labelledby="cTitle" style="z-index:55">
   <div class="grab"></div>
   <h2 id="cTitle">Frame the spine</h2>
-  <p class="by">Drag the box and its corners so it covers just the spine. Rotate if it's sideways.</p>
+  <p class="by" id="cHint">Drag the box and its corners so it covers just the spine. Rotate if it's sideways.</p>
   <div class="crop" id="cropWrap">
     <img id="cropImg" alt="Your spine photo">
     <div class="cropbox" id="cropBox">
@@ -646,6 +653,7 @@ header.top{position:relative}
 
 <div class="toast" id="toast" role="status"></div>
 <input type="file" id="spineInput" accept="image/*" capture="environment" hidden>
+<input type="file" id="coverInput" accept="image/*" hidden>
 
 <script>
 (function(){
@@ -1088,7 +1096,7 @@ function showForm(d){
   $("#f-pages").value = d.pages || ""; $("#f-genre").value = d.genre || "";
   $("#f-desc").value = d.description || "";
   $("#f-isbn").value = d.isbn || "";
-  formCover = d.cover || null;
+  formCover = d.cover || null; setFormCover();
   formSpine = null; setFormSpine(null);
   $("#f-spineNote").textContent = "Optional. Your shelf shows the real spine instead of a plain color.";
   formStatus = "toread"; setSeg("#f-status", formStatus);
@@ -1397,6 +1405,9 @@ function fillDetail(b){
   $("#dSpineImg").hidden = !b.spine; if (b.spine) $("#dSpineImg").src = b.spine;
   $("#dSpineBtn").textContent = b.spine ? "Retake" : "Photograph the spine";
   $("#dSpineFlip").hidden = !b.spine; $("#dSpineRemove").hidden = !b.spine;
+  $("#dCoverBtn").textContent = b.cover ? "Change cover photo" : "Add a cover photo";
+  $("#dCoverRemove").hidden = !b.cover;
+  $("#dCoverNote").textContent = b.cover ? "" : "No cover yet. Take a photo of the front, or pick one from your gallery.";
   const tk = todayKey();
   ["#dStart", "#dFin", "#dLogDate"].forEach(s => { $(s).max = tk; });
   $("#dLogDate").value = tk;
@@ -1603,10 +1614,19 @@ function drawCropBox(){
   el.style.left = b.x * 100 + "%"; el.style.top = b.y * 100 + "%"; el.style.width = b.w * 100 + "%"; el.style.height = b.h * 100 + "%";
 }
 function showCropImage(){ $("#cropImg").src = cropState.canvas.toDataURL("image/jpeg", 0.85); drawCropBox(); }
-function openCrop(canvas){
+function openCrop(canvas, mode){
   return new Promise(resolve => {
     const wide = canvas.width > canvas.height;
-    cropState = { canvas, resolve, box: wide ? { x: 0.05, y: 0.32, w: 0.9, h: 0.36 } : { x: 0.32, y: 0.05, w: 0.36, h: 0.9 } };
+    let box = wide ? { x: 0.05, y: 0.32, w: 0.9, h: 0.36 } : { x: 0.32, y: 0.05, w: 0.36, h: 0.9 };
+    if (mode === "cover"){ // a 2:3 frame, as big as fits
+      const W = canvas.width, H = canvas.height;
+      const bh = Math.min(0.9 * H, 0.9 * W * 1.5), bw = bh / 1.5;
+      box = { x: (1 - bw / W) / 2, y: (1 - bh / H) / 2, w: bw / W, h: bh / H };
+    }
+    $("#cTitle").textContent = mode === "cover" ? "Frame the cover" : "Frame the spine";
+    $("#cHint").textContent = mode === "cover" ? "Drag the box and its corners so it covers just the front of the book. Rotate if it's sideways." : "Drag the box and its corners so it covers just the spine. Rotate if it's sideways.";
+    $("#cropUse").textContent = mode === "cover" ? "Use cover" : "Use spine";
+    cropState = { canvas, resolve, box, mode };
     showCropImage(); $("#scrim").classList.add("open"); $("#cropSheet").classList.add("open");
   });
 }
@@ -1650,6 +1670,7 @@ $("#cropUse").onclick = () => {
   const pw = Math.max(4, Math.round(b.w * c.width)), ph = Math.max(4, Math.round(b.h * c.height));
   let k = document.createElement("canvas"); k.width = pw; k.height = ph;
   k.getContext("2d").drawImage(c, Math.round(b.x * c.width), Math.round(b.y * c.height), pw, ph, 0, 0, pw, ph);
+  if (cropState.mode === "cover"){ endCrop(finishCover(k)); return; }
   if (pw > ph) k = rotateCanvas(k, 90);
   endCrop(finishSpine(k));
 };
@@ -1694,6 +1715,40 @@ $("#spineInput").onchange = async () => {
     note.textContent = "That photo couldn't be used. Try again with the spine filling the frame.";
     setTimeout(() => { note.textContent = old; }, 5000);
   }
+};
+
+/* ---------- Your own cover photos ---------- */
+let coverTarget = null;
+function finishCover(canvas){
+  const s = Math.min(1, 360 / Math.max(canvas.width, canvas.height));
+  const c = document.createElement("canvas"); c.width = Math.round(canvas.width * s); c.height = Math.round(canvas.height * s);
+  c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
+  return { url: c.toDataURL("image/jpeg", 0.82) };
+}
+function setFormCover(){
+  const img = $("#f-coverImg"); img.hidden = !formCover; if (formCover) img.src = formCover;
+  $("#f-coverBtn").textContent = formCover ? "Change" : "Add a cover photo";
+  $("#f-coverRemove").hidden = !formCover;
+  $("#f-coverNote").textContent = formCover ? "" : "No cover found? Take a photo of the front, or pick one from your gallery.";
+}
+function pickCover(target){ coverTarget = target; $("#coverInput").value = ""; $("#coverInput").click(); }
+$("#f-coverBtn").onclick = () => pickCover("form");
+$("#f-coverRemove").onclick = () => { formCover = null; setFormCover(); };
+$("#dCoverBtn").onclick = () => { if (openId) pickCover(openId); };
+$("#dCover").onclick = () => { if (openId) pickCover(openId); };
+$("#dCoverRemove").onclick = () => { const x = clone(); x.cover = null; save(x); toast("Cover removed"); };
+$("#coverInput").onchange = async () => {
+  const f = $("#coverInput").files[0]; if (!f) return;
+  const target = coverTarget; let res = null;
+  try {
+    const { img, url } = await loadImage(f);
+    try { res = await openCrop(drawScaled(img, 1800).canvas, "cover"); } finally { URL.revokeObjectURL(url); }
+  } catch(e){ toast("That photo couldn't be opened. Try another one."); return; }
+  if (!res) return;
+  if (target === "form"){ formCover = res.url; setFormCover(); return; }
+  const b = books.find(x => x.id === target); if (!b) return;
+  const x = JSON.parse(JSON.stringify(b)); x.cover = res.url;
+  await save(x); toast("Cover added");
 };
 
 /* ---------- Goal ---------- */
