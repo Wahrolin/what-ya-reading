@@ -235,6 +235,19 @@ header.top{position:relative}
 .crop img{display:block;max-width:100%;max-height:56vh;pointer-events:none}
 .cropbox{position:absolute;border:2px solid #fff;box-shadow:0 0 0 999px rgba(0,0,0,.5);touch-action:none;cursor:move}
 .cropbox .h{position:absolute;width:22px;height:22px;background:#fff;border-radius:4px}
+.covers{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:10px}
+.covers button{aspect-ratio:2/3;border:none;border-radius:3px;background-size:cover;background-position:center;padding:6px;display:flex;align-items:flex-end;font-size:.62rem;font-weight:600;line-height:1.15;text-align:left;overflow:hidden;box-shadow:0 6px 12px -8px var(--shadow);transition:transform .2s ease}
+.covers button:active{transform:scale(.96)}
+.covers .empty-note{grid-column:1/-1;color:var(--ink-soft);font-size:.88rem;margin:0}
+.hl{display:flex;gap:12px;align-items:center;width:100%;background:none;border:none;border-top:1px solid var(--line);padding:10px 0;text-align:left}
+.hl:first-child{border-top:none;padding-top:0}
+.hl:last-child{padding-bottom:0}
+.hl .meta{flex:1;min-width:0}
+.hl .k{display:block;font-size:.74rem;color:var(--ink-faint);font-weight:500}
+.hl strong{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hl .v{flex:none;color:var(--ink-soft);font-size:.85rem;font-variant-numeric:tabular-nums}
+.delta{display:block;margin-top:4px;font-size:.74rem;color:var(--ink-faint);font-variant-numeric:tabular-nums}
+#yearChips{margin-top:-4px}
 [hidden]{display:none !important}
 @media (prefers-reduced-motion: reduce){*{transition:none !important;animation:none !important}}
 </style>
@@ -292,7 +305,8 @@ header.top{position:relative}
   </main>
 
   <main id="view-habits" hidden>
-    <section class="panel">
+    <div class="chips" id="yearChips" role="group" aria-label="Choose a year"></div>
+    <section class="panel" id="goalPanel">
       <div class="goal-line">
         <h2 id="goalTitle">Your goal</h2>
         <button class="linkbtn" id="editGoal">Change goal</button>
@@ -302,6 +316,14 @@ header.top{position:relative}
     </section>
     <section class="panel">
       <div class="big" id="bigStats"></div>
+    </section>
+    <section class="panel">
+      <div class="goal-line"><h2 id="coversTitle">Finished this year</h2><span class="hint" id="coversCount" style="margin:0"></span></div>
+      <div class="covers" id="coverGrid"></div>
+    </section>
+    <section class="panel" id="hlPanel">
+      <h2>Highlights</h2>
+      <div id="hlList"></div>
     </section>
     <section class="panel">
       <h2 id="monthTitle">Books finished by month</h2>
@@ -897,24 +919,54 @@ function allSessions(){
   books.forEach(b => (b.sessions || []).forEach(s => { m[s.d] = (m[s.d] || 0) + (s.p || 0); }));
   return m;
 }
+let insYear = YEAR;
+function readStart(x){ return x.r < (x.b.reads || []).length ? (x.b.reads[x.r] || {}).startedAt : x.b.startedAt; }
+function readRating(x){ return x.r < (x.b.reads || []).length ? ((x.b.reads[x.r] || {}).rating || 0) : (x.b.rating || 0); }
+function dayDiff(a, b){ return Math.round((new Date(b + "T12:00") - new Date(a + "T12:00")) / 864e5); }
+function yearStats(Y, perDay, owned){
+  const y = String(Y);
+  const done = owned.flatMap(completions).filter(x => x.at.startsWith(y));
+  const logged = Object.entries(perDay).filter(([d]) => d.startsWith(y)).reduce((s, [, p]) => s + p, 0);
+  const rest = done.reduce((s, x) => s + (x.b.pages ? Math.max(0, x.b.pages - pagesRead(x.b, x.r) - x.untracked) : 0), 0);
+  const dnf = owned.filter(b => b.status === "dnf" && (b.stoppedAt || "").startsWith(y)).length;
+  return { done, pages: logged + rest, dnf };
+}
+function coverStyle(b){
+  const c = colorOf(b);
+  return b.cover ? `background-image:url(${esc(b.cover)});background-color:${esc(c)};color:transparent` : `background-color:${esc(c)};color:${textOn(c)}`;
+}
 function renderHabits(){
   const perDay = allSessions();
   const owned = books.filter(b => !b.wish);
-  const finishedYear = owned.flatMap(completions).filter(x => x.at.startsWith(String(YEAR)));
+
+  // Years with any reading activity, plus this year
+  const years = new Set([YEAR]);
+  owned.forEach(b => {
+    completions(b).forEach(x => years.add(+x.at.slice(0, 4)));
+    if (b.stoppedAt) years.add(+b.stoppedAt.slice(0, 4));
+  });
+  Object.keys(perDay).forEach(d => years.add(+d.slice(0, 4)));
+  const yearList = [...years].filter(Boolean).sort((a, b) => b - a);
+  if (!years.has(insYear)) insYear = YEAR;
+  $("#yearChips").hidden = yearList.length < 2;
+  $("#yearChips").innerHTML = yearList.map(y => `<button class="chip" type="button" data-y="${y}" aria-pressed="${y === insYear}">${y}</button>`).join("");
+  $$("#yearChips .chip").forEach(c => c.onclick = () => { insYear = +c.dataset.y; renderHabits(); });
+
+  const Y = insYear, isNow = Y === YEAR;
+  const cur = yearStats(Y, perDay, owned), prev = yearStats(Y - 1, perDay, owned);
+  const finishedYear = cur.done;
   const rereadsYear = finishedYear.filter(x => x.r > 0).length;
-  const dnfYear = owned.filter(b => b.status === "dnf" && (b.stoppedAt || "").startsWith(String(YEAR))).length;
-  // Logged pages this year, plus the unlogged rest of books finished this year (never assigned to a day).
-  const loggedYear = Object.entries(perDay).filter(([d]) => d.startsWith(String(YEAR))).reduce((s,[,p]) => s + p, 0);
-  const restYear = finishedYear.reduce((s, x) => s + (x.b.pages ? Math.max(0, x.b.pages - pagesRead(x.b, x.r) - x.untracked) : 0), 0);
-  const pagesYear = loggedYear + restYear;
-
-  const now = new Date();
-
+  const hasPrev = prev.done.length > 0 || prev.pages > 0 || prev.dnf > 0;
+  const delta = (a, b) => { if (!hasPrev) return ""; const d = a - b; return `<small class="delta">${d === 0 ? "Same as" : (d > 0 ? "+" : "\u2212") + Math.abs(d).toLocaleString() + " vs"} ${Y - 1}</small>`; };
+  const when = isNow ? "this year" : `in ${Y}`;
   $("#bigStats").innerHTML = `
-    <div><b>${finishedYear.length}</b><span>books finished this year</span></div>
-    <div><b>${pagesYear.toLocaleString()}</b><span>pages read this year</span></div>
-    <div><b>${dnfYear}</b><span>didn't finish this year</span></div>`;
+    <div><b>${finishedYear.length}</b><span>books finished ${when}</span>${delta(finishedYear.length, prev.done.length)}</div>
+    <div><b>${cur.pages.toLocaleString()}</b><span>pages read ${when}</span>${delta(cur.pages, prev.pages)}</div>
+    <div><b>${cur.dnf}</b><span>didn't finish ${when}</span>${delta(cur.dnf, prev.dnf)}</div>`;
 
+  // Goal only applies to the current year
+  $("#goalPanel").hidden = !isNow;
+  const now = new Date();
   const goal = Math.max(1, profile.goal || 24);
   $("#goalTitle").textContent = `${goal} books in ${YEAR}`;
   const left = goal - finishedYear.length;
@@ -925,24 +977,57 @@ function renderHabits(){
   if (rereadsYear) $("#goalText").textContent += ` Includes ${rereadsYear} re-read${rereadsYear > 1 ? "s" : ""}.`;
   $("#goalBar").style.width = Math.min(100, finishedYear.length / goal * 100) + "%";
 
-  // month chart
-  $("#monthTitle").textContent = `Books finished in ${YEAR}`;
+  // Covers of everything finished, in the order you finished them
+  const ordered = finishedYear.slice().sort((a, b) => a.at < b.at ? -1 : a.at > b.at ? 1 : (a.b.addedAt || 0) - (b.b.addedAt || 0));
+  $("#coversTitle").textContent = isNow ? "Finished this year" : `Finished in ${Y}`;
+  $("#coversCount").textContent = ordered.length ? `${ordered.length} ${ordered.length === 1 ? "book" : "books"}` : "";
+  $("#coverGrid").innerHTML = ordered.length
+    ? ordered.map(x => `<button type="button" data-id="${esc(x.b.id)}" style="${coverStyle(x.b)}" aria-label="${esc(x.b.title)}, finished ${fmtDate(x.at)}">${esc(x.b.title)}</button>`).join("")
+    : `<p class="empty-note">${isNow ? "Books you finish this year will line up here, cover by cover." : `No finished books with a ${Y} date.`}</p>`;
+  $$("#coverGrid button").forEach(el => el.onclick = () => openDetail(el.dataset.id));
+
+  // Highlights
+  const hl = [];
+  const rated = finishedYear.filter(x => readRating(x) > 0);
+  if (rated.length){
+    const top = rated.slice().sort((a, b) => readRating(b) - readRating(a) || (a.at < b.at ? 1 : -1))[0];
+    const r = readRating(top);
+    hl.push({ k: "Highest rated", x: top, v: `<span aria-label="${r} stars">${"\u2605".repeat(r)}</span>` });
+  }
+  const withPages = finishedYear.filter(x => x.b.pages);
+  if (withPages.length){
+    const byLen = withPages.slice().sort((a, b) => b.b.pages - a.b.pages);
+    hl.push({ k: "Longest book", x: byLen[0], v: `${byLen[0].b.pages.toLocaleString()} pages` });
+    if (byLen.length > 1) hl.push({ k: "Shortest book", x: byLen[byLen.length - 1], v: `${byLen[byLen.length - 1].b.pages.toLocaleString()} pages` });
+  }
+  const timed = finishedYear.map(x => ({ x, s: readStart(x) })).filter(o => o.s && o.s <= o.x.at)
+    .map(o => ({ x: o.x, d: dayDiff(o.s, o.x.at) + 1 })).filter(o => o.d >= 1);
+  if (timed.length){
+    const q = timed.sort((a, b) => a.d - b.d)[0];
+    hl.push({ k: "Quickest read", x: q.x, v: `${q.d} ${q.d === 1 ? "day" : "days"}` });
+  }
+  $("#hlPanel").hidden = !hl.length;
+  $("#hlList").innerHTML = hl.map(h => `<button type="button" class="hl" data-id="${esc(h.x.b.id)}"><span class="mini" style="${coverStyle(h.x.b)}"></span><span class="meta"><span class="k">${h.k}</span><strong>${esc(h.x.b.title)}</strong></span><span class="v">${h.v}</span></button>`).join("");
+  $$("#hlList .hl").forEach(el => el.onclick = () => openDetail(el.dataset.id));
+
+  // Month chart
+  $("#monthTitle").textContent = `Books finished by month`;
   const months = Array.from({length:12}, () => 0);
   finishedYear.forEach(x => { const m = parseInt((x.at || "").slice(5,7), 10); if (m) months[m-1]++; });
   const mmax = Math.max(3, ...months), MW = 600, MH = 150, mb = MW / 12;
   let mbars = "";
   months.forEach((n, i) => {
     const h = n ? (n / mmax) * (MH - 46) : 2;
-    const lbl = new Date(YEAR, i, 1).toLocaleDateString(undefined, {month:"short"});
+    const lbl = new Date(Y, i, 1).toLocaleDateString(undefined, {month:"short"});
     mbars += `<rect x="${i*mb + 6}" y="${MH - 22 - h}" width="${mb - 12}" height="${h}" rx="2" fill="${n ? "var(--ink)" : "var(--line)"}"/>`;
     if (n) mbars += `<text x="${i*mb + mb/2}" y="${MH - 28 - h}" font-size="12" text-anchor="middle" fill="var(--ink)" font-family="Geist, system-ui, sans-serif" font-weight="600">${n}</text>`;
     mbars += `<text x="${i*mb + mb/2}" y="${MH - 5}" font-size="11" text-anchor="middle" fill="var(--ink-soft)" font-family="Geist, system-ui, sans-serif">${lbl}</text>`;
   });
-  $("#monthChart").innerHTML = `<svg viewBox="0 0 ${MW} ${MH}" role="img" aria-label="Books finished each month this year">${mbars}</svg>`;
+  $("#monthChart").innerHTML = `<svg viewBox="0 0 ${MW} ${MH}" role="img" aria-label="Books finished each month in ${Y}">${mbars}</svg>`;
 
-  // genres
+  // Genres of the books finished that year
   const gc = {};
-  books.filter(b => !b.wish && b.status !== "toread").forEach(b => { const g = (b.genre || "").trim(); if (g) gc[g] = (gc[g] || 0) + 1; });
+  finishedYear.forEach(x => { const g = (x.b.genre || "").trim(); if (g) gc[g] = (gc[g] || 0) + 1; });
   const top = Object.entries(gc).sort((a,b) => b[1] - a[1]).slice(0, 6);
   $("#genrePanel").hidden = !top.length;
   const gmax = top.length ? top[0][1] : 1;
