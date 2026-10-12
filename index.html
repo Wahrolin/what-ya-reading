@@ -586,6 +586,9 @@ header.top{position:relative}
   <p class="hint">Automatic follows your phone's light or dark setting.</p>
   <label>Reading goal</label>
   <div class="setrow"><span id="sGoal"></span><button class="btn ghost sm" id="sGoalBtn" type="button">Change</button></div>
+  <label for="sGbKey">Google Books key (optional)</label>
+  <div class="row"><input type="text" id="sGbKey" placeholder="Paste your key" autocomplete="off" spellcheck="false" autocapitalize="off"><button class="btn ghost sm" id="sGbSave" type="button" style="flex:none">Save</button></div>
+  <p class="hint">Search uses Open Library, which needs nothing. Google Books adds more covers and descriptions, but without your own free key it's often over its daily limit.</p>
   <label>Backup and export</label>
   <p class="hint" id="sBackupText" style="margin:0 0 10px"></p>
   <div class="stack" style="margin-top:0">
@@ -1174,10 +1177,43 @@ function cleanText(html){
   const t = new DOMParser().parseFromString(String(html), "text/html").body.textContent || "";
   return t.replace(/\s+\n/g, "\n").trim().slice(0, 1500);
 }
+function fetchJSON(url, ms){
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms || 12000);
+  return fetch(url, { signal: ac.signal }).then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }).finally(() => clearTimeout(t));
+}
+function genreFromSubjects(list){
+  const all = (list || []).join("|").toLowerCase(); if (!all) return "";
+  const hit = GENRES.find(([k]) => all.includes(k)); return hit ? hit[1] : "";
+}
+// Open Library search: free, no key, no daily limit worth worrying about.
+async function fromOLSearch(params, n){
+  const fields = "key,title,author_name,first_publish_year,isbn,cover_i,number_of_pages_median,subject";
+  const j = await fetchJSON(`https://openlibrary.org/search.json?${params}&limit=${n}&fields=${fields}`);
+  return (j.docs || []).map(d => ({
+    title: d.title || "", author: (d.author_name || []).slice(0, 3).join(", "), pages: d.number_of_pages_median || null,
+    genre: genreFromSubjects(d.subject), description: "",
+    isbn: (d.isbn || []).find(x => /^97[89]\d{10}$/.test(x)) || (d.isbn || [])[0] || "",
+    year: d.first_publish_year ? String(d.first_publish_year) : "",
+    coverUrl: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null,
+    workKey: d.key || ""
+  })).filter(x => x.title);
+}
+// Searches Open Library first, or Google Books first if you've added your own key, then the other.
+async function searchBooks(q, n){
+  const clean = q.replace(/[-\s]/g, "");
+  const isIsbn = /^(97[89])?\d{9}[\dXx]$/.test(clean);
+  const google = () => fromGoogle(isIsbn ? "isbn:" + clean : q, n);
+  const ol = () => fromOLSearch(isIsbn ? "isbn=" + clean : "q=" + encodeURIComponent(q), n);
+  let anyOk = false, lastErr = null;
+  for (const f of (profile.gbKey ? [google, ol] : [ol, google])){
+    try { const r = await f(); anyOk = true; if (r.length) return r; } catch(e){ lastErr = e; }
+  }
+  if (!anyOk && lastErr) throw lastErr;
+  return [];
+}
 async function fromGoogle(q, n){
-  const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=${n}&printType=books`);
-  if (!r.ok) throw new Error("Google Books " + r.status);
-  const j = await r.json();
+  const key = profile.gbKey ? `&key=${encodeURIComponent(profile.gbKey)}` : "";
+  const j = await fetchJSON(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=${n}&printType=books${key}`);
   return (j.items || []).map(it => {
     const v = it.volumeInfo || {}; const ids = v.industryIdentifiers || [];
     const isbn = (ids.find(x => x.type === "ISBN_13") || ids.find(x => x.type === "ISBN_10") || {}).identifier || "";
@@ -1221,14 +1257,25 @@ async function lookupIsbn(isbn){
   showPane("#addScanning"); $("#scanStatus").textContent = `Looking up ${isbn}…`;
   if (!navigator.onLine){ showForm({ isbn, note: "You're offline, so the book couldn't be looked up. Type the details below." }); return; }
   let info = null;
-  try { info = (await fromGoogle("isbn:" + isbn, 1))[0] || null; } catch(e){}
+  try { info = (await searchBooks(isbn, 1))[0] || null; } catch(e){}
   if (!info) try { info = await fromOpenLibrary(isbn); } catch(e){}
   if (!info){ showForm({ isbn, note: `No details found for ISBN ${isbn}. Type them below and it still goes on your shelf.` }); return; }
   info.isbn = info.isbn || isbn;
   fillFromInfo(info, "Found it. Check the details, then put it on the shelf.");
 }
 async function fillFromInfo(info, note){
-  showPane("#addScanning"); $("#scanStatus").textContent = "Getting the cover…";
+  showPane("#addScanning"); $("#scanStatus").textContent = "Getting the details…";
+  if (info.workKey && /^\/works\/OL\w+$/.test(info.workKey) && (!info.description || !info.genre)){
+    try {
+      const w = await fetchJSON(`https://openlibrary.org${info.workKey}.json`, 8000);
+      if (!info.description){
+        const d = typeof w.description === "string" ? w.description : (w.description && w.description.value) || "";
+        info.description = cleanText(d.split(/\n-{3,}/)[0].replace(/\[([^\]]+)\]\([^)]*\)/g, "$1"));
+      }
+      if (!info.genre) info.genre = genreFromSubjects(w.subjects);
+    } catch(e){}
+  }
+  $("#scanStatus").textContent = "Getting the cover…";
   let cover = null, color = null;
   if (info.coverUrl){ const r = await coverToData(info.coverUrl); cover = r.data || info.coverUrl; color = r.color || null; }
   showForm({ title: info.title, author: info.author, pages: info.pages, genre: info.genre, description: info.description, isbn: info.isbn, cover, color, note });
@@ -1246,9 +1293,7 @@ async function runSearch(){
   if (!navigator.onLine){ box.innerHTML = `<p class="hint">You're offline. Connect to search, or type the details yourself.</p>`; return; }
   box.innerHTML = `<div class="status-msg"><div class="spin"></div><span>Searching…</span></div>`;
   try {
-    const clean = q.replace(/[-\s]/g, "");
-    const isIsbn = /^(97[89])?\d{9}[\dXx]$/.test(clean);
-    const items = await fromGoogle(isIsbn ? "isbn:" + clean : q, 12);
+    const items = await searchBooks(q, 12);
     if (seq !== sSeq) return;
     sItems = items;
     box.innerHTML = items.length ? items.map((it, i) => `<button type="button" class="result" data-i="${i}"><span class="mini" style="${it.coverUrl ? `background-image:url(${esc(it.coverUrl)})` : ""}"></span><span style="min-width:0"><strong>${esc(it.title)}</strong><small>${esc([it.author, it.year].filter(Boolean).join(", "))}</small></span></button>`).join("")
@@ -1256,7 +1301,7 @@ async function runSearch(){
     $$("#sResults .result").forEach(el => el.onclick = () => fillFromInfo(sItems[+el.dataset.i], "Check the details, then put it on the shelf."));
     const sm = $("#sManual"); if (sm) sm.onclick = () => showForm({ title: q });
   } catch(e){
-    if (seq === sSeq) box.innerHTML = `<p class="hint">Search isn't working right now. Try again in a moment, or type the details yourself.</p>`;
+    if (seq === sSeq) box.innerHTML = `<p class="hint">Couldn't reach the book databases. Check your internet connection and try again, or type the details yourself.</p>`;
   }
 }
 
@@ -1647,7 +1692,12 @@ function fillSettings(){
   $("#shareJson").hidden = !canShareFiles();
   $("#importConfirm").hidden = true;
   $("#installBtn").hidden = !installEvt;
+  $("#sGbKey").value = profile.gbKey || "";
 }
+$("#sGbSave").onclick = () => {
+  profile.gbKey = $("#sGbKey").value.trim() || null; store.putProfile();
+  toast(profile.gbKey ? "Key saved. Google Books is searched first." : "Key removed");
+};
 $("#settingsBtn").onclick = () => { fillSettings(); openSheet("#settingsSheet"); };
 $$("#sTheme button").forEach(b => b.onclick = () => {
   theme = b.dataset.s; applyTheme(theme); setSeg("#sTheme", theme);

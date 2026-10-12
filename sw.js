@@ -1,5 +1,5 @@
 // What Ya Reading: keeps the app working offline.
-const CACHE = "wyr-v1";
+const CACHE = "wyr-v2";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png"];
 
 self.addEventListener("install", e => {
