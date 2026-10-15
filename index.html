@@ -101,9 +101,6 @@ h1 .q{color:var(--ink-faint)}
 .spine.photo{background-size:100% 100%;background-repeat:no-repeat}
 .spine.photo .t{visibility:hidden}
 .spine.dnf{filter:saturate(.2);opacity:.55}
-.spine.lent{background:transparent !important;background-image:none !important;border:1px dashed var(--ink-faint);box-shadow:none;color:var(--ink-soft) !important}
-.spine.lent .side,.spine.lent .prog{display:none}
-.spine.lent .t{visibility:visible;font-size:.68rem}
 .lean{transform:rotate(-4deg);transform-origin:bottom left;margin-left:5px}
 
 /* Generic surfaces */
@@ -290,7 +287,6 @@ header.top{position:relative}
       <button class="chip" data-f="toread" aria-pressed="false">To read<span class="n" id="n-toread"></span></button>
       <button class="chip" data-f="finished" aria-pressed="false">Finished<span class="n" id="n-finished"></span></button>
       <button class="chip" data-f="dnf" aria-pressed="false">Didn't finish<span class="n" id="n-dnf"></span></button>
-      <button class="chip" data-f="lent" aria-pressed="false">Lent out<span class="n" id="n-lent"></span></button>
     </div>
     <div id="shelfArea"></div>
     <section class="now" id="nowSec" hidden>
@@ -494,6 +490,12 @@ header.top{position:relative}
     <label>Spine color</label>
     <div class="swatches" id="eColors"></div>
     <p class="hint">Shown when the book has no spine photo.</p>
+    <label>Cover</label>
+    <div class="spinepick"><div class="btns"><button type="button" class="btn ghost sm" id="dCoverBtn">Add a cover photo</button><button type="button" class="btn ghost sm" id="dCoverRemove" hidden>Remove</button></div></div>
+    <p class="hint" id="dCoverNote"></p>
+    <label>Spine photo</label>
+    <div class="spinepick"><img id="dSpineImg" alt="Spine photo" hidden><div class="btns"><button type="button" class="btn ghost sm" id="dSpineBtn">Photograph the spine</button><button type="button" class="btn ghost sm" id="dSpineFlip" hidden>Flip</button><button type="button" class="btn ghost sm" id="dSpineRemove" hidden>Remove</button></div></div>
+    <p class="hint" id="dSpineNote">Fill the frame with the spine. The book can stand up or lie flat.</p>
     <div class="row" style="margin-top:14px">
       <button class="btn" id="eSave" type="button">Save changes</button>
       <button class="btn ghost" id="eCancel" type="button">Cancel</button>
@@ -503,12 +505,6 @@ header.top{position:relative}
     <p class="desc clamp" id="dDesc"></p>
     <button class="linkbtn" id="dDescMore" type="button">Show more</button>
   </div>
-  <label>Cover</label>
-  <div class="spinepick"><div class="btns"><button type="button" class="btn ghost sm" id="dCoverBtn">Add a cover photo</button><button type="button" class="btn ghost sm" id="dCoverRemove" hidden>Remove</button></div></div>
-  <p class="hint" id="dCoverNote"></p>
-  <label>Spine photo</label>
-  <div class="spinepick"><img id="dSpineImg" alt="Spine photo" hidden><div class="btns"><button type="button" class="btn ghost sm" id="dSpineBtn">Photograph the spine</button><button type="button" class="btn ghost sm" id="dSpineFlip" hidden>Flip</button><button type="button" class="btn ghost sm" id="dSpineRemove" hidden>Remove</button></div></div>
-  <p class="hint" id="dSpineNote">Fill the frame with the spine. The book can stand up or lie flat.</p>
   <div id="dWishBox" class="box" hidden>
     <h3>On your wishlist</h3>
     <p class="hint" style="margin:0 0 10px">Got your hands on it? Move it to your shelf.</p>
@@ -548,29 +544,8 @@ header.top{position:relative}
     <ul class="reads" id="dReadsList"></ul>
     <button class="btn ghost sm" id="dReread" type="button" style="margin-top:10px">Start a re-read</button>
   </div>
-  <div id="dLendBox" class="box">
-    <h3>Lending</h3>
-    <div id="dLendOff">
-      <p class="hint" style="margin:0 0 10px" id="dLendHist">Keep track of who has your book.</p>
-      <button class="btn ghost sm" id="dLendBtn" type="button">Lend this book</button>
-    </div>
-    <div id="dLendForm" hidden>
-      <div class="row">
-        <div><label for="dLendTo">Lent to</label><input type="text" id="dLendTo" placeholder="Name"></div>
-        <div><label for="dLendOn">On</label><input type="date" id="dLendOn"></div>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <button class="btn" id="dLendSave" type="button">Save</button>
-        <button class="btn ghost" id="dLendCancel" type="button">Cancel</button>
-      </div>
-    </div>
-    <div id="dLendNow" hidden>
-      <p style="margin:0 0 10px" id="dLendText"></p>
-      <button class="btn sm" id="dLendBack" type="button">It's back on my shelf</button>
-    </div>
-  </div>
   <label for="dNotes">Notes</label>
-  <textarea id="dNotes" placeholder="Quotes, thoughts, who lent it to you…"></textarea>
+  <textarea id="dNotes" placeholder="Quotes, thoughts, what you made of it…"></textarea>
   <div class="stack">
     <button class="btn" id="dDone" type="button">Done</button>
     <button class="btn danger" id="dDelete" type="button">Remove from shelf</button>
@@ -841,8 +816,8 @@ function groupFor(mode, list){
 function render(){
   if (profile.theme && profile.theme !== theme){ theme = profile.theme; applyTheme(theme); try { localStorage.setItem("wyr-theme", theme); } catch(e){} }
   const owned = books.filter(b => !b.wish);
-  const counts = { all: owned.length, reading: 0, toread: 0, finished: 0, dnf: 0, lent: 0 };
-  owned.forEach(b => { counts[b.status] = (counts[b.status] || 0) + 1; if (b.lent) counts.lent++; });
+  const counts = { all: owned.length, reading: 0, toread: 0, finished: 0, dnf: 0 };
+  owned.forEach(b => { counts[b.status] = (counts[b.status] || 0) + 1; });
   Object.keys(counts).forEach(k => { const el = $("#n-"+k); if (el) el.textContent = counts[k] || ""; });
   const due = owned.length >= 5 && (!profile.lastBackup || Date.now() - Date.parse(profile.lastBackup) > 30 * 864e5) && !(profile.nudgeUntil && Date.now() < profile.nudgeUntil);
   $("#nudge").innerHTML = due ? `<div class="nudge"><span>${profile.lastBackup ? "It's been a month since your last backup." : "Your library only lives on this phone. Save a backup?"}</span><span class="acts"><button class="btn sm" type="button" id="nudgeGo">Back up</button><button class="btn ghost sm" type="button" id="nudgeLater">Later</button></span></div>` : "";
@@ -857,9 +832,9 @@ function render(){
 
   const area = $("#shelfArea");
   const q = norm(query.trim());
-  let list = owned.filter(b => filter === "all" || (filter === "lent" ? !!b.lent : b.status === filter));
-  if (q) list = list.filter(b => norm([b.title, b.author, b.genre, b.isbn, b.lent && b.lent.to].join(" ")).includes(q));
-  const fname = filter === "lent" ? "lent out right now" : filter === "all" ? "" : "marked " + LABEL[filter].toLowerCase();
+  let list = owned.filter(b => filter === "all" || b.status === filter);
+  if (q) list = list.filter(b => norm([b.title, b.author, b.genre, b.isbn].join(" ")).includes(q));
+  const fname = filter === "all" ? "" : "marked " + LABEL[filter].toLowerCase();
   list.sort(SORTERS[sortBy] || SORTERS.shelf);
 
   if (!owned.length){
@@ -868,7 +843,7 @@ function render(){
   } else if (!list.length && q){
     area.innerHTML = `<div class="empty"><h2>No matches</h2><p>Nothing ${filter === "all" ? "on your shelf" : esc(fname)} matches “${esc(query.trim())}”. Check the spelling, or try the author's name.</p></div>`;
   } else if (!list.length){
-    area.innerHTML = `<div class="empty"><h2>Nothing here yet</h2><p>No books ${esc(fname)}. Tap a book on your shelf to change where it sits${filter === "lent" ? " or who has it" : ""}.</p></div>`;
+    area.innerHTML = `<div class="empty"><h2>Nothing here yet</h2><p>No books ${esc(fname)}. Tap a book on your shelf to change where it sits.</p></div>`;
   } else {
     const spineHtml = (b, i, count) => {
       const w = Math.max(24, Math.min(58, Math.round((b.pages || 300) / 11)));
@@ -882,7 +857,7 @@ function render(){
       const gap = Math.round(depth * Math.sin(-ry * Math.PI / 180)) + 2;
       const pct = b.status === "reading" && b.pages ? Math.min(100, Math.round((b.currentPage || 0) / b.pages * 100)) : null;
       const prog = b.status === "reading" ? `<span class="prog" aria-hidden="true"><i style="--p:${pct || 0}%"></i></span>` : "";
-      return `<div class="slot${lean}" style="--gap:${gap}px"><button class="spine ${b.status}${b.spine ? " photo" : ""}${b.lent ? " lent" : ""}" data-id="${esc(b.id)}" style="--ry:${ry}deg;--rz:${rz}deg;--depth:${depth}px;width:${b.spine ? Math.max(16, Math.min(72, Math.round(h * (b.spineRatio || .2)))) : w}px;height:${h}px;background-color:${esc(c)};${b.spine ? `background-image:url(${b.spine});` : ""}color:${textOn(c)}" aria-label="${esc(b.title)}${b.author ? " by " + esc(b.author) : ""}, ${LABEL[b.status]}${pct !== null ? ", " + pct + "% read" : ""}${b.lent ? ", lent to " + esc(b.lent.to) : ""}"><span class="t">${b.lent ? "With " + esc(b.lent.to) : esc(b.title)}</span>${prog}<span class="ribbon"></span><span class="side" aria-hidden="true"></span></button></div>`;
+      return `<div class="slot${lean}" style="--gap:${gap}px"><button class="spine ${b.status}${b.spine ? " photo" : ""}" data-id="${esc(b.id)}" style="--ry:${ry}deg;--rz:${rz}deg;--depth:${depth}px;width:${b.spine ? Math.max(16, Math.min(72, Math.round(h * (b.spineRatio || .2)))) : w}px;height:${h}px;background-color:${esc(c)};${b.spine ? `background-image:url(${b.spine});` : ""}color:${textOn(c)}" aria-label="${esc(b.title)}${b.author ? " by " + esc(b.author) : ""}, ${LABEL[b.status]}${pct !== null ? ", " + pct + "% read" : ""}"><span class="t">${esc(b.title)}</span>${prog}<span class="ribbon"></span><span class="side" aria-hidden="true"></span></button></div>`;
     };
     const caseHtml = arr => `<div class="case"><div class="shelf">${arr.map((b, i) => spineHtml(b, i, arr.length)).join("")}</div></div>`;
     const groups = groupFor(sortBy, list);
@@ -1137,7 +1112,7 @@ $("#addForm").onsubmit = async e => {
   }
   const b = {
     id: uid(), title, author: $("#f-author").value.trim(), pages,
-    genre: $("#f-genre").value.trim(), description: $("#f-desc").value.trim(), status, wish, reads: [], lent: null, stoppedAt: null, color: formColor,
+    genre: $("#f-genre").value.trim(), description: $("#f-desc").value.trim(), status, wish, reads: [], stoppedAt: null, color: formColor,
     isbn: $("#f-isbn").value || "", cover: formCover,
     spine: formSpine ? formSpine.url : null, spineRatio: formSpine ? formSpine.ratio : null, currentPage, untracked,
     rating: 0, notes: "", sessions: [], addedAt: Date.now(), startedAt, finishedAt
@@ -1431,16 +1406,6 @@ function fillDetail(b){
     + (reads.length && b.status !== "finished" ? `<li>Read ${reads.length + 1}: ${b.status === "reading" ? "in progress" : LABEL[b.status].toLowerCase()}</li>` : "");
   $("#dReread").hidden = b.status !== "finished";
 
-  // Lending
-  $("#dLendBox").hidden = wish;
-  $("#dLendForm").hidden = true;
-  $("#dLendOff").hidden = !!b.lent; $("#dLendNow").hidden = !b.lent;
-  if (b.lent){
-    const days = Math.max(0, Math.round((new Date(todayKey() + "T12:00") - new Date(b.lent.on + "T12:00")) / 864e5));
-    $("#dLendText").innerHTML = `With <strong>${esc(b.lent.to)}</strong> since ${fmtDate(b.lent.on)}${days ? `, ${days} ${days === 1 ? "day" : "days"} ago` : ""}.`;
-  }
-  const lh = (b.lendHistory || []).slice(-1)[0];
-  $("#dLendHist").textContent = lh ? `Last lent to ${lh.to}, back ${fmtDate(lh.back)}.` : "Keep track of who has your book.";
 }
 $("#dGotIt").onclick = () => { if (openId) gotIt(openId); };
 $("#dDescMore").onclick = () => {
@@ -1454,23 +1419,6 @@ $("#dReread").onclick = () => {
   x.reads = (x.reads || []).concat([{ startedAt: x.startedAt, finishedAt: x.finishedAt, untracked: x.untracked || 0, rating: x.rating || 0 }]);
   x.status = "reading"; x.startedAt = todayKey(); x.finishedAt = null; x.currentPage = 0; x.untracked = 0;
   save(x); toast("Re-read started. Your first read stays in your stats.");
-};
-$("#dLendBtn").onclick = () => {
-  $("#dLendOff").hidden = true; $("#dLendForm").hidden = false;
-  $("#dLendTo").value = ""; $("#dLendOn").value = todayKey(); $("#dLendOn").max = todayKey();
-  $("#dLendTo").focus();
-};
-$("#dLendCancel").onclick = () => { $("#dLendForm").hidden = true; $("#dLendOff").hidden = false; };
-$("#dLendSave").onclick = () => {
-  const to = $("#dLendTo").value.trim();
-  if (!to){ $("#dLendTo").focus(); toast("Add who has it"); return; }
-  const x = clone(); x.lent = { to, on: $("#dLendOn").value || todayKey() };
-  save(x); toast(`Lent to ${to}`);
-};
-$("#dLendBack").onclick = () => {
-  const x = clone(); if (!x.lent) return;
-  x.lendHistory = (x.lendHistory || []).concat([{ to: x.lent.to, on: x.lent.on, back: todayKey() }]);
-  x.lent = null; save(x); toast("Back on your shelf");
 };
 $("#dStart").onchange = () => { const x = clone(); x.startedAt = $("#dStart").value || null; save(x); };
 $("#dFin").onchange = () => {
@@ -1838,7 +1786,6 @@ const CSV_COLS = [
   ["Title", b => b.title], ["Author", b => b.author], ["ISBN", b => b.isbn], ["Pages", b => b.pages], ["Genre", b => b.genre],
   ["Status", b => b.wish ? "Wishlist" : LABEL[b.status]], ["Rating", b => b.rating || ""], ["Started", b => b.startedAt],
   ["Finished", b => b.finishedAt], ["Stopped", b => b.stoppedAt], ["Times read", b => completions(b).length || ""],
-  ["Lent to", b => b.lent && b.lent.to], ["Lent on", b => b.lent && b.lent.on],
   ["Date added", b => b.addedAt ? todayKey(new Date(b.addedAt)) : ""], ["Description", b => b.description], ["Notes", b => b.notes]
 ];
 const csvCell = v => { const s = v == null ? "" : String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
